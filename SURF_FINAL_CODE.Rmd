@@ -1,0 +1,1002 @@
+---
+title: "Final_code"
+author: "Sakaiza"
+date: "8/8/2018"
+output: html_document
+---
+
+```{r}
+#load
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(cowplot)
+```
+
+```{r}
+#Import wave_1_data_csv
+  #Turning year of interview and birth year into numeric variables
+wave_1_data_csv$IYEAR <- as.numeric(as.character(wave_1_data_csv$IYEAR))
+wave_1_data_csv$H1GI1Y <- as.numeric(as.character(wave_1_data_csv$H1GI1Y))
+
+  #filter out the cases that are between 15 and 19 years old
+wave_1_data_csv <- wave_1_data_csv%>%
+  mutate(age = IYEAR- H1GI1Y)%>%
+  filter(age >=15)%>%
+  filter(age<=19)
+
+  #Get the birth year and ID of cases in wave 1
+birth_year <- wave_1_data_csv %>%
+  select(AID, H1GI1Y)
+
+  #import wave_2_data
+  #rename cases ID aid as AID
+names(wave_2_data)[names(wave_2_data) == 'aid'] <- 'AID'
+  #Get the wave 2 cases that were as well present during wave 1 , call it wave 2.
+wave_2_data <- inner_join(wave_2_data, birth_year, by = "AID")
+
+  #Turn year of interview and birth year into numeric variables
+wave_2_data$iyear2 <- as.numeric(as.character(wave_2_data$iyear2))
+wave_2_data$H1GI1Y <- as.numeric(as.character(wave_2_data$H1GI1Y))
+
+  #filter out the cases that were between 15 and 19 yo
+wave_2_data <- wave_2_data%>%
+  mutate(age = iyear2 - H1GI1Y)%>%
+  filter(age>=15)%>%
+  filter(age <= 19)
+
+```
+
+```{R}
+  
+#Import final_score_I_csv data and final_score_II_data_csv
+  #turn the wave 1 final score values into numerical values.
+final_score_I_data_csv <- data.frame(lapply(final_score_I_data_csv, function(x) as.numeric(as.character(x))))
+
+#Select all the AID of the cases that are in wave 2, which are also present in wave_1
+data_2 <- wave_2_data %>%
+  select(AID)
+data_2$AID <- as.numeric(as.character(data_2$AID))
+  #inner join the final score I and data_2 in order to get the wave 1 score of the cases present during both wave 1 and wave 2
+score_data_I <- inner_join(final_score_I_data_csv, data_2, by = "AID")
+table(score_data_I$age)
+  #create a new data frame from score_data_I with a new variable score which adds up the score of all the drivng behaviour scores.
+  #replace all N.A values with 0
+aggregate_score_I <- score_data_I%>%
+  mutate_each(funs(replace(.,which(is.na(.)),0)))%>%
+  mutate( score = H1GH42 + H1GH43 + H1DS8 + H1JO9 + H1JO19)
+
+summary(aggregate_score_I$score)
+hist(aggregate_score_I$score)
+
+  #Same process but for wave_2
+final_score_II_data_csv <- data.frame(lapply(final_score_II_data_csv, function(x) as.numeric(as.character(x))))
+
+score_data_II <- inner_join(final_score_II_data_csv, data_2, by = "AID")
+
+aggregate_score_II<-score_data_II%>%
+  mutate_each(funs(replace(.,which(is.na(.)),0)))%>%
+  mutate( score = h2gh39 + h2to37 + h2ds6+ h2to36 + h2jo11)
+
+summary(aggregate_score_II$score)
+hist(aggregate_score_II$score)
+
+# Chose the median as the cut_off of low risk vs High risk. Median = 1
+
+#Create a new variable risk_I for wave 1, if score is lower or equal to 1 risk_I = 0, else it takes 1
+aggregate_score_I <- aggregate_score_I%>%
+  mutate(risk_I = ifelse (score<=1, "0","1"))
+
+#Create a new variable risk_II for wave 2, if score is lower or equal to 1 risk_I = 0, else it takes 1
+aggregate_score_II <- aggregate_score_II %>%
+  mutate(risk_II = ifelse (score<=1, "0","1"))
+
+#Select only the cases ID, score and risk level. from wave 1
+risk_score_I <- aggregate_score_I %>%
+  select(AID, score,risk_I)
+
+names(risk_score_I)[names(risk_score_I) == 'score'] <- 'score_I'
+
+#Select only the cases ID, score and risk level. from wave 2
+risk_score_II <- aggregate_score_II %>%
+  select(AID, score, risk_II)
+
+names(risk_score_II)[names(risk_score_II) == 'score'] <- 'score_II'
+
+#Create a new data frame "risk table" with the risk score and level in both wave 1 and 2. 
+risk_table <- inner_join(risk_score_I, risk_score_II, by = "AID")
+
+#Create a new variable "change", if score improved change is "got better", if score worsen change = "got worse", if score stayed good, if score stayed bad.
+risk_table <- risk_table%>%
+  mutate(change = ifelse(risk_I == risk_II & risk_I == "0", "stayed_good",
+                         ifelse(risk_I < risk_II, "got_worse",
+                                ifelse(risk_I>risk_II,"got_better",
+                                       ifelse(risk_I == risk_II&risk_I == "1","stayed_bad","NA")))))
+
+#import the_socio_background_eco_csv
+#Create a data frame socio_change that join risk table and the socio_sconomic variable for each case. 
+#turn AID variable as character in both frames
+the_socio_background_eco$AID <- as.numeric(as.character(the_socio_background_eco$AID))
+risk_table$AID <- as.numeric(as.character(risk_table$AID))
+
+socio_change <- inner_join(the_socio_background_eco, risk_table, by = "AID")
+
+got_worse <- socio_change %>%
+  filter(change == "got_worse")
+
+got_better <- socio_change%>%
+  filter(change == "got_better")
+
+stayed_good <- socio_change%>%
+  filter(change == "stayed_good")
+
+```
+
+```{r}
+
+#Bubble chart
+
+socio_change$IYEAR <- as.numeric(as.character(socio_change$IYEAR))
+socio_change$H1GI1Y <- as.numeric(as.character(socio_change$H1GI1Y))
+
+socio_change <- socio_change%>%
+  mutate(age = IYEAR- H1GI1Y)
+
+theme_set(theme_bw())  # pre-set the bw theme.
+
+education <- ggplot(socio_change, aes(factor(change), factor(PA12))) + 
+  labs(subtitle="Parents education level VS Change of behaviour",
+       title="Bubble chart")
+
+education + geom_jitter(aes(col = factor(age)))
+
+public_assist <- ggplot(socio_change, aes(factor(change), factor(PA21))) + 
+  labs(subtitle="Parents public assistance status VS Change of behaviour",
+       title="Bubble chart")
+
+public_assist + geom_jitter(aes(col = factor(age)))
+
+crime <- ggplot(socio_change, aes(factor(change), factor(PA28E))) + 
+  labs(subtitle="Crime level in neighborhood VS Change of behaviour",
+       title="Bubble chart")
+
+crime +  geom_jitter(aes(col = factor(age)))
+
+drug <- ggplot(socio_change, aes(factor(change), factor(PA28F))) + 
+  labs(subtitle="drug and illegalt actin neighborhood VS Change of behaviour",
+       title="Bubble chart")
+
+drug + geom_jitter(aes(col = factor(age)))
+
+drug_dealers <- ggplot(socio_change, aes(factor(change), factor(PA34))) + 
+  labs(subtitle="drug dealers issues VS Change of behaviour",
+       title="Bubble chart")
+
+drug_dealers + geom_jitter(aes(col = factor(age)))
+
+pay_bills <- ggplot(socio_change, aes(factor(change), factor(PA56))) + 
+  labs(subtitle=" Ability to pay bills VS Change of behaviour",
+       title="Bubble chart")
+
+pay_bills + geom_jitter(aes(col = factor(age)))
+
+social_secur<- ggplot(socio_change, aes(factor(change), factor(PA57B))) + 
+  labs(subtitle=" social security income status VS Change of behaviour",
+       title="Bubble chart")
+
+social_secur + geom_jitter(aes(col = factor(age)))
+
+AFDC<- ggplot(socio_change, aes(factor(change), factor(PA57C))) + 
+  labs(subtitle=" sAFDC status VS Change of behaviour",
+       title="Bubble chart")
+
+AFDC + geom_jitter(aes(col = factor(age)))
+
+food_stamps<- ggplot(socio_change, aes(factor(change), factor(PA57D))) + 
+  labs(subtitle=" food stamps status VS Change of behaviour",
+       title="Bubble chart")
+
+food_stamps + geom_jitter(aes(col = factor(age)))
+
+house_subsidies<- ggplot(socio_change, aes(factor(change), factor(PA57F))) + 
+  labs(subtitle=" house subsidies status VS Change of behaviour",
+       title="Bubble chart")
+
+house_subsidies + geom_jitter(aes(col = factor(age)))
+
+weekly_allowance <- ggplot(socio_change, aes(factor(change), factor(H1EE8))) + 
+  labs(subtitle=" students weekly allowance status VS Change of behaviour",
+       title="Bubble chart")
+
+weekly_allowance + geom_jitter(aes(col = factor(age)))
+
+safety_feeling <- ggplot(socio_change, aes(factor(change), factor(H1NB5))) + 
+  labs(subtitle=" parents safety feeling n neighborhood VS Change of behaviour",
+       title="Bubble chart")
+
+safety_feeling + geom_jitter(aes(col = factor(age)))
+
+```
+
+```{r}
+#bar graphs function code
+make_prop <- function(dataframe) {
+  cat_prop <- dataframe %>%
+    group_by(change)%>%
+    summarise(n = n())%>%
+    mutate(Proportion_in_percent = round(n/nrow(dataframe)*100,2) )
+  return(data.frame(cat_prop))
+}
+
+make_ggplot <- function(prop, str_title) {
+  g<- ggplot(prop, aes(change,Proportion_in_percent)) +
+    geom_bar(stat = "identity", aes(fill = change)) +
+    geom_text(aes(label= prop$Proportion_in_percent), vjust=1.6, color="white", size=4)+
+    theme_minimal()+
+    labs(subtitle= str_title, y = "Percent") +
+  theme(axis.ticks.y =element_blank(),
+        axis.text.y = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x=element_blank())
+  return(g)
+}
+
+draw <- function(df, str_title) {
+  bar_plot <- make_ggplot(make_prop(df), str_title)
+  return(bar_plot)
+}
+
+```
+
+
+
+```{R}
+#Bar graph vizualization code
+
+#I want the percentage of people in each category of socio_eco_background.. at each state. x percent of student whose parent got y1 education level got better. 
+
+#Category 1, in education level 
+
+eith_grade_or_less <-  socio_change %>%
+  filter(PA12 == "1")
+more_than_8_no_HS<- socio_change%>%
+  filter(PA12 == "2")
+bus_trade_voca_InstdtHS <-socio_change%>%
+  filter(PA12 == "3")
+high_school_no_grad <- socio_change%>%
+  filter(PA12 == "4")
+GED <- socio_change %>%
+  filter(PA12 == "5")
+bus_trade_voca_aftHS <- socio_change%>%
+  filter(PA12 == "6")
+college_no_grad <- socio_change%>%
+  filter(PA12 == "7")
+grad_college <- socio_change%>%
+  filter(PA12 == "8")
+prof_train <- socio_change%>%
+  filter(PA12 == "9")
+never_went_school <- socio_change%>%
+  filter(PA12 == "10")
+
+g1<- draw(eith_grade_or_less,"Students whose parents did 8th grade or less (n = 144)" )
+g2 <- draw( more_than_8_no_HS, "Students whose parents did more than\n 8th grade but did not graduate from \n high school (n = 281)")
+g3<- draw(bus_trade_voca_InstdtHS, "Students whose parents did business,  \n trade or vocational school instead \n of High school (n = 23)")
+g4<- draw(high_school_no_grad, "Students whose parents went to high school \n but did not graduate (n = 754)")
+g5 <- draw(GED, "Students whose parents did GED (n = 117)")
+g6 <- draw (bus_trade_voca_aftHS, "Students whose parents did business, \n trade or  vocational school after \nHigh school (n = 282)")
+g7 <- draw(college_no_grad, "Students whose parents went to college \n but did not graduate (n = 553)")
+g8 <- draw(grad_college, "Students whose parents \ngraduated from college (n = 455)")
+g9 <- draw(prof_train, "Students whose parents did  \n professional training (n = 296)")
+g10 <- draw(never_went_school, "Students whose parents never went to school (n = 1)")
+
+plot_grid(g1, g2, g3, g4, g5, g6, g7, g8, g9, g10)
+
+```
+
+```{r}
+#PA21
+#public assistance
+
+no_public_assist <- socio_change%>%
+  filter(PA21 == "0")
+
+yes_public_assist <- socio_change%>%
+  filter(PA21 == "1")
+
+refuse_asnw_pub <- socio_change%>%
+  filter(PA21 == "6")
+
+p1 <- draw(no_public_assist, "Students whose parents \n are not receiving public assistance (n=2636)")
+p2 <- draw(yes_public_assist, "Students whose parents \n are receiving public assistance (n= 269)")
+
+plot_grid(p1, p2)
+
+
+ 
+```
+
+```{r}
+#PA28E
+#live here because there is less crime in this neighborhood than there is in other neighborhoods
+
+no_crime <- socio_change%>%
+  filter(PA28E == "0")
+
+yes_crime <- socio_change%>%
+  filter(PA28E == "1")
+
+refuse_asnw_crime <- socio_change%>%
+  filter(PA28E == "6")
+
+c1 <- draw(no_crime, "students whose parents do not live \n in the neighborhood because there is \n less crime there than there is in others (n=1149)")
+
+c2 <- draw(yes_crime, "students whose parents live \n in the neighborhood because there is \n less crime there than there is in others (n = 1731)")
+
+plot_grid(c1, c2)
+
+
+
+```
+
+```{r}
+#PA28F
+#You live here because there is less drug use and other illegal activity by adolescents in this neighborhood.
+
+no_drug <- socio_change%>%
+  filter(PA28F == "0")
+
+yes_drug <- socio_change%>%
+  filter(PA28F == "1")
+
+refuse_asnw_drug <- socio_change%>%
+  filter(PA28F == "6")
+
+d1 <- draw(no_drug, "students whose parents do not live in the \nneighborhood because there is less drug\n use and other illegal activity \nby adolescents (n=1251) ")
+
+d2 <- draw(yes_drug, "students whose parents live in the \nneighborhood because there is less drug\n use and other illegal activity \nby adolescents (n = 1600) ")
+
+plot_grid(d1, d2)
+
+
+
+```
+
+```{r}
+#PA34
+#how big a problem are drug dealers and drug users
+
+no_problem <- socio_change%>%
+  filter(PA34 == "1")
+
+small_problem <- socio_change%>%
+  filter(PA34 == "2")
+
+big_problem <- socio_change%>%
+  filter(PA34 == "3")
+
+refused_to_answ <- socio_change %>%
+  filter(PA34 == "6")
+
+bp1 <- draw(no_problem, "students whose parents think \n drug dealers and drug users are \n not a problem at all in the neighborhood (n = 1692)")
+
+bp2 <- draw(small_problem, "students whose parents think \n drug dealers and drug users are \n a small problem in the neighborhood (n = 919)")
+
+bp3 <- draw(big_problem, "students whose parents think \n drug dealers and drug users are \n a big problem in the neighborhood (n = 253)")
+
+bp4 <- draw(refused_to_answ, "students whose parents refused to asnwer \n whether drug dealers and users \n are a problem in neighborhood (n = 51)") 
+
+plot_grid(bp1, bp2, bp3, bp4)
+```
+
+```{r}
+#PA56
+#do you have enough money to pay bills. 
+
+no_money <- socio_change%>%
+  filter(PA56 == "0")
+
+yes_money <- socio_change%>%
+  filter(PA56 == "1")
+
+refuse_answ_money<- socio_change%>%
+  filter(PA56 == "6")
+
+
+
+m1 <- draw(no_money, "students whose parents \n do not have enough money to pay their bills (n = 550)")
+
+m2 <- draw(yes_money, "students whose parents \n have enough money to pay their bills (n = 2298)")
+
+m3 <- draw(refuse_answ_money, "students whose parents \n refuse to answer whether they have enough money to pay their bills (n = 15)")
+
+plot_grid(m1, m2, m3)
+```
+
+
+```{r}
+
+#PA57B
+# Last month, did you or any member of your household receive:supplemental security income
+
+no_SSI <- socio_change%>%
+  filter(PA57B == "0")
+
+yes_SSI <- socio_change%>%
+  filter(PA57B == "1")
+
+refuse_answ_SSI<- socio_change%>%
+  filter(PA57B == "6")
+
+
+
+s1 <- draw(no_SSI, "Students whose parents or any member of\n household did not receive \n supplemental security income (n = 2696")
+
+s2 <- draw(yes_SSI, "Students whose parents or any member of \nhousehold received \n supplemental security income(n = 193)")
+
+
+
+plot_grid(s1, s2)
+
+```
+
+```{r}
+#PA57C
+# Last month, did you or any member of your household receive: Aid to Families with Dependent Children (AFDC)
+
+no_AFDC <- socio_change%>%
+  filter(PA57C == "0")
+
+yes_AFDC <- socio_change%>%
+  filter(PA57C == "1")
+
+refuse_answ_AFDC<- socio_change%>%
+  filter(PA57C == "6")
+
+
+
+af1 <- draw(no_AFDC, "Students whose parents or any member of\n household did not receive \n Aid to Families with Dependent Children (n = 2665)")
+
+af2 <- draw(yes_AFDC, "Students whose parents or any member of \nhousehold received \n Aid to Families with Dependent Children (n = 226)")
+
+plot_grid(af1, af2)
+
+```
+
+
+
+```{r}
+#PA57D
+# food stamps
+
+no_food_stamps <- socio_change%>%
+  filter(PA57D == "0")
+
+yes_food_stamps <- socio_change%>%
+  filter(PA57D == "1")
+
+refuse_answ_food_stamps<- socio_change%>%
+  filter(PA57D == "6")
+
+
+
+fs1 <- draw(no_food_stamps, "Students whose parents or any member of\n household did not receive \n food stamps (n = 2512)")
+
+fs2 <- draw(yes_food_stamps, "Students whose parents or any member of \nhousehold received \n food stamps (n = 375)")
+
+plot_grid(fs1, fs2)
+
+```
+```{r}
+#PA57F
+# a housing subsidy or public housing
+
+no_house <- socio_change%>%
+  filter(PA57F == "0")
+
+yes_house <- socio_change%>%
+  filter(PA57F == "1")
+
+refuse_answ_house<- socio_change%>%
+  filter(PA57F == "6")
+
+
+h1 <- draw(no_house, "Students whose parents or any member of\n household did not receive \n a housing subsidy or public housing (n = 2788)")
+
+h2 <- draw(yes_house, "Students whose parents or any member of \nhousehold received \n a housing subsidy or public housing (n = 97)")
+
+plot_grid(h1, h2)
+```
+
+```{r}
+#H1EE8
+# How much is your allowance each week
+
+no_allowance <- socio_change%>%
+  filter(H1EE8 == "0")
+
+refused_to_say <- socio_change%>%
+  filter(H1EE8 == "96")
+
+donT_know<- socio_change%>%
+  filter(H1EE8 == "98")
+
+not_applicable<- socio_change%>%
+  filter(H1EE8 == "99")
+
+a1 <- draw(no_allowance, "Students who do not receive\n weekly allowance (n = 1685)")
+
+a2 <- draw(refused_to_say, "Students who refused to say \nhow much allowance they get weekly (n = 10)")
+
+a3 <- draw(donT_know, "Students who do not know how much allowance they get weekly (n = 37)")
+
+
+plot_grid(a1, a2, a3)
+```
+
+
+```{r}
+#H1NB5
+# Do you usually feel safe in your neighborhood?
+
+no_safe <- socio_change%>%
+  filter(H1NB5 == "0")
+
+yes_safe <- socio_change%>%
+  filter(H1NB5 == "1")
+
+refused_to_sayifsafe <- socio_change%>%
+  filter(H1NB5 == "6")
+
+
+safe1 <- draw(no_safe, "Students who do not feel \nsafe in their neighborhood (n=340) ")
+
+safe2 <- draw(yes_safe, "Students who feel \nsafe in their neighborhood (n = 2971)")
+
+safe3 <- draw(refused_to_sayifsafe, "Students who refused to say if \nthey feel safe in their neighborhood ( n = 6)")
+
+
+plot_grid(safe1, safe2, safe3)
+
+
+```
+
+
+```{r}
+#regression test for seatbelt behaviour(H1GH42) wave1
+
+#Only keep the 12 explanatory variables (in regression_independent_var) ##I amde a mistake while naming that.  and 1 independent variable in seat_belt_1.
+regression_indepent_var <- the_socio_background_eco%>%
+  select(-H1EE10, -X1, -H1GI1Y, -BIO_SEX, -Column, -IYEAR)
+wave_1_data_csv$AID <- as.numeric(as.character(wave_1_data_csv$AID ))
+seat_belt_1 <- wave_1_data_csv %>%
+  select(AID, H1GH42) 
+
+#Join the two data frame
+regression_w1_seat <- inner_join(regression_indepent_var, seat_belt_1, by = "AID")
+
+regression_w1_seat <- regression_w1_seat%>%
+  select(-AID)
+
+#Omit NAs
+regression_w1_seat <- na.omit(regression_w1_seat)
+
+#Turn all variables into factor but the independent variable.
+regression_w1_seat<- data.frame(lapply(regression_w1_seat, function(x) as.factor(as.character(x))))
+regression_w1_seat$H1GH42 <- as.character(regression_w1_seat$H1GH42)
+
+# make an equation out of the full equation and the null equation
+full <- lm(H1GH42~., data = regression_w1_seat)
+fullMSE<-(summary(full)$sigma)^2
+null <- lm(H1GH42~1, data=regression_w1_seat)
+summary(full)
+
+#Use stepwise method to reduce the full equation into an equation with the best predictor. 
+step(null, data=regression_w1_seat, scope=list(lower=null, upper=full),
+     scale=fullMSE, direction="both")
+
+#Summarise the best predictor equation
+step<- lm(formula = H1GH42 ~ PA12 + PA34 + PA57C + PA57B, data = regression_w1_seat)
+summary(step)
+
+#Make an analysis of variance of the reduced equation
+aov_seat_1 <- aov(formula = H1GH42 ~ PA12 + PA34 + PA57C + PA57B, data = regression_w1_seat)
+
+summary(aov_seat_1, intercept = TRUE)
+
+
+```
+
+```{r}
+
+
+#Regression test for Alcohol consumption (H1GH43)
+alcohol_consump_1 <- wave_1_data_csv %>%
+  select(AID, H1GH43)
+
+regression_w1_alcohol <- inner_join(regression_indepent_var, alcohol_consump_1, by = "AID")
+
+regression_w1_alcohol <- regression_w1_alcohol%>%
+  select(-AID)
+regression_w1_alcohol <- na.omit(regression_w1_alcohol)
+
+regression_w1_alcohol<- data.frame(lapply(regression_w1_alcohol, function(x) as.factor(as.character(x))))
+regression_w1_alcohol$H1GH43 <- as.character(regression_w1_alcohol$H1GH43)
+
+
+full_2 <- lm(H1GH43~., data = regression_w1_alcohol)
+fullMSE_2<-(summary(full_2)$sigma)^2
+null_2 <- lm(H1GH43~1, data= regression_w1_alcohol)
+summary(full_2)
+
+#Adjusted r-squared is 0.63%
+
+step(null_2, data=regression_w1_alcohol, scope=list(lower=null_2, upper=full_2),
+     scale=fullMSE_2, direction="both")
+
+step_2<- lm(formula = H1GH43 ~ H1NB5 + PA57F + PA34, data = regression_w1_alcohol)
+summary(step_2)
+
+#Adjusted r-squared is 1.11%
+
+aov_alcohol_1 <- aov(formula = H1GH43 ~ H1NB5 + PA57F + PA34, data = regression_w1_alcohol)
+
+summary(aov_alcohol_1, intercept = TRUE)
+
+
+```
+
+```{r}
+
+#Regression test for illegal driving (H1DS8)
+illegal_drive_1 <- wave_1_data_csv %>%
+  select(AID, H1DS8)
+
+regression_w1_illeg <- inner_join(regression_indepent_var, illegal_drive_1, by = "AID")
+
+regression_w1_illeg <- regression_w1_illeg%>%
+  select(-AID)
+regression_w1_illeg <- na.omit(regression_w1_illeg)
+
+regression_w1_illeg<- data.frame(lapply(regression_w1_illeg, function(x) as.factor(as.character(x))))
+regression_w1_illeg$H1DS8 <- as.character(regression_w1_illeg$H1DS8)
+
+
+full_3 <- lm(H1DS8~., data = regression_w1_illeg)
+fullMSE_3<-(summary(full_3)$sigma)^2
+null_3 <- lm(H1DS8~1, data= regression_w1_illeg)
+summary(full_3)
+
+#Adjusted r-squared is 16.9%
+
+step(null_3, data=regression_w1_illeg, scope=list(lower=null_3, upper=full_3),
+     scale=fullMSE_3, direction="both")
+
+step_3<- lm(formula = H1DS8 ~ H1NB5 + H1EE8 + PA56 + PA57C + PA34, data = regression_w1_illeg)
+summary(step_3)
+
+#Adjusted r-squared is 17.16%
+
+aov_illeg_1 <- aov(formula = H1DS8 ~ H1NB5 + H1EE8 + PA56 + PA57C + PA34, data = regression_w1_illeg)
+
+summary(aov_illeg_1, intercept = TRUE)
+
+```
+
+
+
+```{r}
+#Regression test for drunk behaviour (H1JO9)
+drunk_1 <- wave_1_data_csv %>%
+  select(AID, H1JO9)
+
+regression_w1_drunk <- inner_join(regression_indepent_var, drunk_1, by = "AID")
+
+regression_w1_drunk <- regression_w1_drunk%>%
+  select(-AID)
+regression_w1_drunk <- na.omit(regression_w1_drunk)
+
+regression_w1_drunk<- data.frame(lapply(regression_w1_drunk, function(x) as.factor(as.character(x))))
+regression_w1_drunk$H1JO9 <- as.character(regression_w1_drunk$H1JO9)
+
+
+full_4 <- lm(H1JO9~., data = regression_w1_drunk)
+fullMSE_4<-(summary(full_4)$sigma)^2
+null_4 <- lm(H1JO9~1, data= regression_w1_drunk)
+summary(full_4)
+
+#Adjusted r-squared is 0.14%
+
+step(null_4, data=regression_w1_drunk, scope=list(lower=null_4, upper=full_4),
+     scale=fullMSE_4, direction="both")
+
+step_4<- lm(formula = H1JO9 ~ H1NB5 + PA57B, data = regression_w1_drunk)
+summary(step_4)
+
+#Adjusted r-squared is 1.3%
+
+aov_drunk_1 <- aov(formula = H1JO9 ~ H1NB5 + PA57B, data = regression_w1_drunk)
+
+summary(aov_drunk_1, intercept = TRUE)
+
+
+```
+
+```{r}
+#Regression test for high behaviour (H1JO19)
+high_1 <- wave_1_data_csv %>%
+  select(AID, H1JO19)
+
+regression_w1_high <- inner_join(regression_indepent_var, high_1, by = "AID")
+
+regression_w1_high <- regression_w1_high%>%
+  select(-AID)
+regression_w1_high <- na.omit(regression_w1_high)
+
+regression_w1_high<- data.frame(lapply(regression_w1_high, function(x) as.factor(as.character(x))))
+regression_w1_high$H1JO19 <- as.character(regression_w1_high$H1JO19)
+
+
+full_5 <- lm(H1JO19~., data = regression_w1_high)
+fullMSE_5<-(summary(full_5)$sigma)^2
+null_5 <- lm(H1JO19~1, data= regression_w1_high)
+summary(full_5)
+
+#Adjusted r-squared is 0.46%
+
+step(null_5, data=regression_w1_high, scope=list(lower=null_5, upper=full_5),
+     scale=fullMSE_5, direction="both")
+
+step_5<- lm(formula = H1JO19 ~ H1NB5 + PA57F, data = regression_w1_high)
+summary(step_5)
+
+#Adjusted r-squared is 0.94%
+
+aov_high_1 <- aov(formula = H1JO19 ~ H1NB5 + PA57F, data = regression_w1_high)
+
+summary(aov_high_1, intercept = TRUE)
+```
+
+
+```{r}
+#regression test for seatbelt behaviour (h2gh39) in wave 2
+
+wave_2_data$AID <- as.numeric(as.character(wave_2_data$AID))
+seat_belt_2 <- wave_2_data %>%
+  select(AID, h2gh39) #ok
+
+regression_w2_seat <- inner_join(regression_indepent_var, seat_belt_2, by = "AID")
+
+regression_w2_seat <- regression_w2_seat%>%
+  select(-AID)
+
+regression_w2_seat <- na.omit(regression_w2_seat)
+
+regression_w2_seat<- data.frame(lapply(regression_w2_seat, function(x) as.factor(as.character(x))))
+regression_w2_seat$h2gh39 <- as.character(regression_w2_seat$h2gh39)#ok
+
+
+full_21 <- lm(h2gh39~., data = regression_w2_seat)
+fullMSE_21<-(summary(full_21)$sigma)^2
+null_21 <- lm(h2gh39~1, data=regression_w2_seat)
+summary(full_21)
+
+#adjusted r_squared of the full equation is 3.6%
+
+
+step(null_21, data=regression_w2_seat, scope=list(lower=null_21, upper=full_21),
+     scale=fullMSE_21, direction="both")
+
+step_seat_2<- lm(formula = h2gh39 ~ PA12 + PA34 + PA57D + PA21, data = regression_w2_seat)
+summary(step_seat_2)
+
+#adjusted r_squ of the reduced equation is 3.9%
+
+aov_seat_2 <- aov(formula = h2gh39 ~ PA12 + PA34 + PA57D + PA21, data = regression_w2_seat)
+
+summary(aov_seat_2, intercept = TRUE)
+
+```
+
+
+```{r}
+#regression test for alcohol consumption behaviour (h2to37) in wave 2
+
+alcohol_2 <- wave_2_data %>%
+  select(AID, h2to37) #ok
+
+regression_w2_alcohol <- inner_join(regression_indepent_var, alcohol_2, by = "AID")
+
+regression_w2_alcohol <- regression_w2_alcohol%>%
+  select(-AID)
+
+regression_w2_alcohol <- na.omit(regression_w2_alcohol)
+
+regression_w2_alcohol<- data.frame(lapply(regression_w2_alcohol, function(x) as.factor(as.character(x))))
+regression_w2_alcohol$h2to37 <- as.character(regression_w2_alcohol$h2to37)#ok
+
+
+full_22 <- lm(h2to37~., data = regression_w2_alcohol)
+fullMSE_22<-(summary(full_22)$sigma)^2
+null_22 <- lm(h2to37~1, data=regression_w2_alcohol)
+summary(full_22)
+
+#adjusted r_squared of the full equation is -0.2%
+
+
+step(null_22, data=regression_w2_alcohol, scope=list(lower=null_22, upper=full_22),
+     scale=fullMSE_22, direction="both")
+
+step_alcohol_2<- lm(formula = h2to37 ~ PA57D, data = regression_w2_alcohol)
+summary(step_alcohol_2)
+
+#adjusted r_squ of the reduced equation is 0.63%
+
+aov_alcohol_2 <- aov(formula = h2to37 ~ PA57D, data = regression_w2_alcohol)
+
+summary(aov_alcohol_2, intercept = TRUE)
+
+```
+
+
+```{r}
+#regression test for illegal driving behaviour (h2ds6) in wave 2
+
+illegal_2 <- wave_2_data %>%
+  select(AID, h2ds6) #ok
+
+regression_w2_illegal <- inner_join(regression_indepent_var, illegal_2, by = "AID")
+
+regression_w2_illegal <- regression_w2_illegal%>%
+  select(-AID)
+
+regression_w2_illegal<- na.omit(regression_w2_illegal)
+
+regression_w2_illegal<- data.frame(lapply(regression_w2_illegal, function(x) as.factor(as.character(x))))
+regression_w2_illegal$h2ds6 <- as.character(regression_w2_illegal$h2ds6)#ok
+
+
+full_23 <- lm(h2ds6~., data = regression_w2_illegal)
+fullMSE_23<-(summary(full_23)$sigma)^2
+null_23 <- lm(h2ds6~1, data=regression_w2_illegal)
+summary(full_23)
+
+#adjusted r_squared of the full equation is 2.1%
+
+
+step(null_23, data=regression_w2_illegal, scope=list(lower=null_23, upper=full_23),
+     scale=fullMSE_23, direction="both")
+
+step_illegal_2<- lm(formula = h2ds6 ~ H1NB5 + PA28E + PA56, data = regression_w2_illegal)
+summary(step_illegal_2)
+
+#adjusted r_squ of the reduced equation is 2.41%
+
+aov_illegal_2 <- aov(formula = h2ds6 ~ H1NB5 + PA28E + PA56, data = regression_w2_illegal)
+
+summary(aov_illegal_2, intercept = TRUE)
+
+```
+
+```{r}
+#regression test for drunk behaviour (h2to36) in wave 2
+
+drunk_2 <- wave_2_data %>%
+  select(AID, h2to36) 
+
+regression_w2_drunk <- inner_join(regression_indepent_var, drunk_2, by = "AID")
+
+regression_w2_drunk <- regression_w2_drunk%>%
+  select(-AID)
+
+regression_w2_drunk<- na.omit(regression_w2_drunk)
+
+regression_w2_drunk<- data.frame(lapply(regression_w2_drunk, function(x) as.factor(as.character(x))))
+regression_w2_drunk$h2to36 <- as.character(regression_w2_drunk$h2to36)#ok
+
+
+full_24 <- lm(h2to36~., data = regression_w2_drunk)
+fullMSE_24<-(summary(full_24)$sigma)^2
+null_24 <- lm(h2to36~1, data=regression_w2_drunk)
+summary(full_24)
+
+#adjusted r_squared of the full equation is 1.58%
+
+
+step(null_24, data=regression_w2_drunk, scope=list(lower=null_24, upper=full_24),
+     scale=fullMSE_24, direction="both")
+
+step_drunk_2<- lm(formula = h2to36 ~ PA57D + PA56 + PA21, data = regression_w2_drunk)
+summary(step_drunk_2)
+
+#adjusted r_squ of the reduced equation is 1.83%
+
+aov_drunk_2 <- aov(formula = h2to36 ~ PA57D + PA56 + PA21, data = regression_w2_drunk)
+
+summary(aov_drunk_2, intercept = TRUE)
+
+```
+
+
+```{r}
+#regression test for high behaviour (h2jo11) in wave 2
+
+high_2 <- wave_2_data %>%
+  select(AID, h2jo11) 
+
+regression_w2_high <- inner_join(regression_indepent_var, high_2, by = "AID")
+
+regression_w2_high <- regression_w2_high%>%
+  select(-AID)
+
+regression_w2_high<- na.omit(regression_w2_high)
+
+regression_w2_high<- data.frame(lapply(regression_w2_high, function(x) as.factor(as.character(x))))
+regression_w2_high$h2jo11 <- as.character(regression_w2_high$h2jo11)#ok
+
+
+full_25 <- lm(h2jo11~., data = regression_w2_high)
+fullMSE_25<-(summary(full_25)$sigma)^2
+null_25 <- lm(h2jo11~1, data=regression_w2_high)
+summary(full_25)
+
+#adjusted r_squared of the full equation is 0.53%
+
+
+step(null_25, data=regression_w2_high, scope=list(lower=null_25, upper=full_25),
+     scale=fullMSE_25, direction="both")
+
+step_high_2<- lm(formula = h2jo11 ~ 1, data = regression_w2_high)
+summary(step_high_2)
+
+#adjusted r_squ of the reduced equation is 1.14%
+
+aov_high_2 <- aov(formula = h2jo11 ~ 1, data = regression_w2_high)
+
+summary(aov_high_2, intercept = TRUE)
+
+```
+
+```{r}
+#get the count of people with dangerous driving behaviour in wave 1
+#seatbelt (666)
+dang_seatbelt_1 <- wave_1_data_csv %>%
+  filter(H1GH42 == "0"|H1GH42 == "1") 
+#alcohol(36)
+dang_alcohol_consump_1 <- wave_1_data_csv %>%
+  filter(H1GH43 == "3"|H1GH43 == "4")
+#unauthorized_driv (484)
+dang_unauthor_1 <- wave_1_data_csv%>%
+  filter(H1DS8 =="1"|H1DS8 =="2")
+#drunk(404)
+dang_drunk_1 <- wave_1_data_csv%>%
+  filter(H1JO9 =="1")
+
+#high(419)
+dang_high_1 <- wave_1_data_csv%>%
+  filter(H1JO19 =="1")
+#Check chrossings count (I repalced the variables using this one formula)
+A <- inner_join(dang_unauthor_1,dang_high_1, by = "AID")
+
+#get the count of people with dangerous driving behaviour in wave 2
+#seatbelt
+dang_seatbelt_2 <- wave_2_data %>%
+  filter(h2gh39 == 0|h2gh39 == 1)
+
+#alcohol
+dang_alcohol_2 <- wave_2_data%>%
+  filter(h2to37 == 3|h2to37 == 4)
+
+#unauth_drive
+dang_unauth_drive_2 <- wave_2_data%>%
+  filter(h2ds6 == 1|h2ds6== 2)
+
+#drunk
+dang_drunk_2 <- wave_2_data%>%
+  filter(h2to36 == 1)
+
+#high
+dang_high_2 <- wave_2_data%>%
+  filter(h2jo11 == 1)
+
+B <- inner_join(dang_high_2,dang_drunk_2, by = "AID")
+```
