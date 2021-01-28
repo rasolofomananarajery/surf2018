@@ -1,1 +1,3 @@
 # surf2018
+
+1.3 million people die in road crashes each year with an average of 3,287 deaths a day. More than half of all road traffic deaths occur among young adults ages 15-44. This research attempts to understand driving behavior among adolescents between 15 and 19 years old by studying their socioeconomic background. Throughout the research, I have been analyzing a dataset from Add Health, a longitudinal study where approximately 15000 high school students have been asked the same questions 6 times over the past 24 years. My analysis focused on the first two waves of the study as they contain adolescents who are between 15 and 19 years old. 
